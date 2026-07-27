@@ -54,6 +54,7 @@ class PatchSampler:
         Sample a random center inside the nodule mask.
         """
 
+
         positive_voxels = np.argwhere(mask > 0)
 
         if len(positive_voxels) == 0:
@@ -219,8 +220,9 @@ class PatchSampler:
         image: np.ndarray,
         nodule_mask: np.ndarray,
         lung_mask: np.ndarray,
+        force_negative: bool = False,
+):
 
-    ):
         """
         Sample one training patch.
 
@@ -236,26 +238,38 @@ class PatchSampler:
             }
         """
 
-        is_positive = (
-            np.random.rand() < self.positive_ratio
-        )
+        if force_negative:
 
-        if is_positive:
-
-            center = self._sample_positive_center(
-                nodule_mask
-            )
-
-        else:
+            is_positive = False
 
             center = self._sample_negative_center(
                 lung_mask,
                 nodule_mask,
             )
 
+        else:
+
+            is_positive = (
+                np.random.rand() < self.positive_ratio
+            )
+
+            if is_positive:
+
+                center = self._sample_positive_center(
+                    nodule_mask
+                )
+
+            else:
+
+                center = self._sample_negative_center(
+                    lung_mask,
+                    nodule_mask,
+                )
+
         center = self._apply_random_offset(
             center
         )
+        
 
         image_patch, mask_patch, start, stop = (
             self._extract_patch(
@@ -309,7 +323,7 @@ class PatchSampler:
 
             self.sample(
                 image=image,
-                mask=nodule_mask,
+                nodule_mask=nodule_mask,
                 lung_mask=lung_mask,
             )
 
