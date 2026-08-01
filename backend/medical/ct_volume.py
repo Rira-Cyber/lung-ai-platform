@@ -2,10 +2,10 @@ from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
 import pydicom
+
+
 class CTVolume:
-
-    def __init__(self , dicom_folder):
-
+    def __init__(self, dicom_folder):
         self.dicom_folder = Path(dicom_folder)
 
         self.datasets = None
@@ -16,23 +16,14 @@ class CTVolume:
         self.load()
 
     def load(self):
-
         dicom_files = list(self.dicom_folder.glob("*.dcm"))
 
         if len(dicom_files) == 0:
-            raise FileNotFoundError('No DICOM files found.')
-        
-        datasets = [
-            pydicom.dcmread(
-                f,
-                stop_before_pixels=True
-            )
-            for f in dicom_files
-        ]
+            raise FileNotFoundError("No DICOM files found.")
 
-        datasets.sort(
-            key=lambda ds: float(ds.ImagePositionPatient[2])
-        )
+        datasets = [pydicom.dcmread(f, stop_before_pixels=True) for f in dicom_files]
+
+        datasets.sort(key=lambda ds: float(ds.ImagePositionPatient[2]))
 
         slices = []
 
@@ -40,13 +31,11 @@ class CTVolume:
             full_ds = pydicom.dcmread(ds.filename)
             slices.append(full_ds.pixel_array)
         self.datasets = datasets
-        self.volume = np.stack(slices , axis=0)
+        self.volume = np.stack(slices, axis=0)
         self.pixel_spacing = datasets[0].PixelSpacing
-        self.slice_thickness = float(
-            datasets[0].SliceThickness
-        )
-    def __repr__(self):
+        self.slice_thickness = float(datasets[0].SliceThickness)
 
+    def __repr__(self):
         return (
             "CTVolume\n"
             "-------------------------\n"
@@ -59,17 +48,17 @@ class CTVolume:
 
     def shape(self):
         return self.volume.shape
-    
-    def axial(self , index):
-        return self.volume[index]
-    
-    def coronal(self , index):
-        return self.volume[: , index , :]
-    
-    def sagittal(self , index):
-        return self.volume[: , : , index]
-    def to_hu(self):
 
+    def axial(self, index):
+        return self.volume[index]
+
+    def coronal(self, index):
+        return self.volume[:, index, :]
+
+    def sagittal(self, index):
+        return self.volume[:, :, index]
+
+    def to_hu(self):
         slope = float(self.datasets[0].RescaleSlope)
         intercept = float(self.datasets[0].RescaleIntercept)
 
@@ -78,8 +67,8 @@ class CTVolume:
         hu = hu * slope + intercept
 
         return hu
-    def window(self, level=-600, width=1500):
 
+    def window(self, level=-600, width=1500):
         hu = self.to_hu()
 
         low = level - width / 2
@@ -90,23 +79,16 @@ class CTVolume:
         hu = (hu - low) / (high - low)
 
         return hu
-    def show(
-        self,
-        index,
-        hu=False
-    ):
 
+    def show(self, index, hu=False):
         if hu:
             img = self.to_hu()[index]
         else:
             img = self.volume[index]
 
-        plt.figure(figsize=(6,6))
+        plt.figure(figsize=(6, 6))
 
-        plt.imshow(
-            img,
-            cmap="gray"
-        )
+        plt.imshow(img, cmap="gray")
 
         plt.axis("off")
 

@@ -21,7 +21,6 @@ class LIDCProcessor:
     """
 
     def __init__(self, dataset_path):
-
         self.dataset_path = Path(dataset_path)
 
         self.patient_id = None
@@ -53,30 +52,17 @@ class LIDCProcessor:
         """
 
         # اگر همین بیمار قبلاً لود شده، هیچ کاری نکن
-        if (
-            self.patient_id == patient_id
-            and self.ct is not None
-        ):
+        if self.patient_id == patient_id and self.ct is not None:
             return self.scan
 
         self.patient_id = patient_id
 
-        self.scan = (
-            pl.query(pl.Scan)
-            .filter(
-                pl.Scan.patient_id == patient_id
-            )
-            .first()
-        )
+        self.scan = pl.query(pl.Scan).filter(pl.Scan.patient_id == patient_id).first()
 
         if self.scan is None:
-            raise ValueError(
-                f"No scan found for {patient_id}"
-            )
+            raise ValueError(f"No scan found for {patient_id}")
 
-        dicom_folder = (
-            self.scan.get_path_to_dicom_files()
-        )
+        dicom_folder = self.scan.get_path_to_dicom_files()
 
         self.ct = CTVolume(dicom_folder)
 
@@ -85,28 +71,24 @@ class LIDCProcessor:
         self.clear_cache()
 
         return self.scan
+
     def load_annotations(self):
         """
         Load all clustered annotations.
         """
 
         if self.scan is None:
-
-            raise RuntimeError(
-                "Patient has not been loaded."
-            )
+            raise RuntimeError("Patient has not been loaded.")
 
         self.annotations = []
 
-        clusters = (
-            self.scan.cluster_annotations()
-        )
+        clusters = self.scan.cluster_annotations()
 
         for cluster in clusters:
-
             self.annotations.extend(cluster)
 
         return self.annotations
+
     def hu_volume(self):
         """
         Return CT volume in Hounsfield Units.
@@ -115,19 +97,13 @@ class LIDCProcessor:
         """
 
         if self.ct is None:
-
-            raise RuntimeError(
-                "CT volume not loaded."
-            )
+            raise RuntimeError("CT volume not loaded.")
 
         if self._hu_volume is None:
-
-            self._hu_volume = (
-                self.ct.to_hu()
-            )
+            self._hu_volume = self.ct.to_hu()
 
         return self._hu_volume
-    
+
     def nodule_mask(self):
         """
         Return the full-volume binary nodule mask.
@@ -136,9 +112,7 @@ class LIDCProcessor:
         """
 
         if self.ct is None:
-            raise RuntimeError(
-                "CT volume not loaded."
-            )
+            raise RuntimeError("CT volume not loaded.")
 
         if not self.annotations:
             self.load_annotations()
@@ -146,13 +120,9 @@ class LIDCProcessor:
         if self._nodule_mask is not None:
             return self._nodule_mask
 
-        full_mask = np.zeros(
-            self.ct.volume.shape,
-            dtype=np.uint8
-        )
+        full_mask = np.zeros(self.ct.volume.shape, dtype=np.uint8)
 
         for annotation in self.annotations:
-
             bbox = annotation.bbox()
 
             # pylidc -> (Y, X, Z)
@@ -163,24 +133,14 @@ class LIDCProcessor:
             mask = annotation.boolean_mask()
 
             # (Y,X,Z) -> (Z,Y,X)
-            mask = np.transpose(
-                mask,
-                (2, 0, 1)
-            )
+            mask = np.transpose(mask, (2, 0, 1))
 
-            full_mask[
-                z,
-                y,
-                x
-            ] = np.logical_or(
-                full_mask[z, y, x],
-                mask
-            )
+            full_mask[z, y, x] = np.logical_or(full_mask[z, y, x], mask)
 
         self._nodule_mask = full_mask
 
         return self._nodule_mask
-    
+
     def lung_mask(self):
         """
         Return the binary lung mask.
@@ -191,16 +151,11 @@ class LIDCProcessor:
         if self._lung_mask is not None:
             return self._lung_mask
 
-        self._lung_mask = (
-            self._lung_segmenter.segment_volume(
-                self.hu_volume()
-            )
-        )
+        self._lung_mask = self._lung_segmenter.segment_volume(self.hu_volume())
 
         return self._lung_mask
-    
-    def __repr__(self):
 
+    def __repr__(self):
         return (
             "LIDCProcessor\n"
             "-------------------------\n"
@@ -211,7 +166,7 @@ class LIDCProcessor:
             f"Lung Cached: {self._lung_mask is not None}\n"
             f"Nodule Cached: {self._nodule_mask is not None}"
         )
-    
+
     def clear_cache(self):
         """
         Clear all cached medical data.

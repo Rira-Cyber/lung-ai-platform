@@ -1,0 +1,22 @@
+[project]
+name = "lung-ai-platform"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy",
+    "pydicom>=3.0.2",
+    "pylidc-updated>=0.2.3",
+    "scikit-image>=0.26.0",
+    "scipy>=1.17.1",
+    "setuptools<82",
+    "torch",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["backend/tests"]

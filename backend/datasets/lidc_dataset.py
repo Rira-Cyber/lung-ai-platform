@@ -1,6 +1,9 @@
-from pathlib import Path
-import json
+from __future__ import annotations
+
+from collections.abc import Sequence
 import hashlib
+import json
+from pathlib import Path
 
 import torch
 from torch.utils.data import Dataset
@@ -9,14 +12,16 @@ from backend.medical.lidc_processor import LIDCProcessor
 
 
 class LIDCDataset(Dataset):
-
     def __init__(
         self,
         dataset_path,
         sampler,
         transforms=None,
-        patches_per_patient=20,
-    ):
+        patches_per_patient: int = 20,
+        patient_ids: Sequence[str] | None = None,
+    ) -> None:
+        if patches_per_patient <= 0:
+            raise ValueError("patches_per_patient must be greater than zero.")
 
         self.dataset_path = Path(dataset_path)
 
@@ -28,59 +33,47 @@ class LIDCDataset(Dataset):
 
         self.patches_per_patient = patches_per_patient
 
-        self.cache_file = (
-            self.dataset_path / "dataset_cache.json"
+        self.cache_file = self.dataset_path / "dataset_cache.json"
+
+        valid_patient_ids = self._load_patient_list()
+
+        self.patient_ids = self._resolve_patient_ids(
+            requested_patient_ids=patient_ids,
+            valid_patient_ids=valid_patient_ids,
         )
 
-        self.patient_ids = self._load_patient_list()
-
-    def _dataset_fingerprint(self):
-
+    def _dataset_fingerprint(
+        self,
+    ) -> str:
         patient_names = sorted(
-            folder.name
-            for folder in self.dataset_path.iterdir()
-            if folder.is_dir()
+            folder.name for folder in self.dataset_path.iterdir() if folder.is_dir()
         )
 
-        fingerprint = hashlib.md5(
-            "".join(patient_names).encode()
-        ).hexdigest()
+        return hashlib.md5("".join(patient_names).encode("utf-8")).hexdigest()
 
-        return fingerprint
-
-    def _load_patient_list(self):
-
+    def _load_patient_list(
+        self,
+    ) -> list[str]:
         fingerprint = self._dataset_fingerprint()
 
         if self.cache_file.exists():
-
-            with open(
-                self.cache_file,
+            with self.cache_file.open(
                 "r",
-            ) as f:
+                encoding="utf-8",
+            ) as file:
+                cache = json.load(file)
 
-                cache = json.load(f)
-
-            if cache["fingerprint"] == fingerprint:
-
-                print("Loading dataset cache...")
-
-                return cache["valid_patients"]
+            if cache.get("fingerprint") == fingerprint:
+                return list(cache["valid_patients"])
 
         patient_ids = sorted(
-            folder.name
-            for folder in self.dataset_path.iterdir()
-            if folder.is_dir()
+            folder.name for folder in self.dataset_path.iterdir() if folder.is_dir()
         )
 
         valid_patients = []
 
-        print("Checking dataset integrity...")
-
         for patient_id in patient_ids:
-
             try:
-
                 self.processor.load_patient(patient_id)
 
                 self.processor.hu_volume()
@@ -91,71 +84,79 @@ class LIDCDataset(Dataset):
 
                 valid_patients.append(patient_id)
 
-            except Exception as e:
-
-                print(
-                    f"Skipping {patient_id}: {e}"
-                )
+            except Exception as error:
+                print(f"Skipping {patient_id}: {error}")
 
         cache = {
-
             "fingerprint": fingerprint,
-
             "valid_patients": valid_patients,
-
         }
 
-        with open(
-            self.cache_file,
+        with self.cache_file.open(
             "w",
-        ) as f:
-
+            encoding="utf-8",
+        ) as file:
             json.dump(
                 cache,
-                f,
+                file,
                 indent=4,
             )
 
-        print(
-            f"Valid patients: {len(valid_patients)}"
-        )
-
         return valid_patients
 
-    def __len__(self):
+    @staticmethod
+    def _resolve_patient_ids(
+        requested_patient_ids: Sequence[str] | None,
+        valid_patient_ids: Sequence[str],
+    ) -> list[str]:
+        if requested_patient_ids is None:
+            return list(valid_patient_ids)
 
-        return (
-            len(self.patient_ids)
-            * self.patches_per_patient
-        )
+        requested = list(requested_patient_ids)
 
-    def __getitem__(self, index):
+        if not requested:
+            raise ValueError("patient_ids cannot be empty.")
 
-        patient_index = (
-            index // self.patches_per_patient
-        )
+        if len(requested) != len(set(requested)):
+            raise ValueError("patient_ids contains duplicate values.")
 
-        patient_id = self.patient_ids[
-            patient_index
-        ]
+        valid_set = set(valid_patient_ids)
 
-        self.processor.load_patient(
-            patient_id
-        )
+        unknown_ids = sorted(set(requested) - valid_set)
+
+        if unknown_ids:
+            raise ValueError(
+                "The following patient IDs "
+                "are invalid or unavailable: " + ", ".join(unknown_ids)
+            )
+
+        return requested
+
+    def __len__(
+        self,
+    ) -> int:
+        return len(self.patient_ids) * self.patches_per_patient
+
+    def __getitem__(
+        self,
+        index: int,
+    ) -> dict:
+        if not 0 <= index < len(self):
+            raise IndexError("Dataset index is out of range.")
+
+        patient_index = index // self.patches_per_patient
+
+        patient_id = self.patient_ids[patient_index]
+
+        self.processor.load_patient(patient_id)
 
         image = self.processor.hu_volume()
 
-        nodule_mask = (
-            self.processor.nodule_mask()
-        )
+        nodule_mask = self.processor.nodule_mask()
 
-        lung_mask = (
-            self.processor.lung_mask()
-        )
+        lung_mask = self.processor.lung_mask()
 
-        has_nodule = (
-            nodule_mask.sum() > 0
-        )
+        has_nodule = bool(nodule_mask.any())
 
         sample = self.sampler.sample(
             image=image,
@@ -164,44 +165,25 @@ class LIDCDataset(Dataset):
             force_negative=not has_nodule,
         )
 
-        image = sample["image"]
+        image_patch = sample["image"]
 
-        mask = sample["mask"]
+        mask_patch = sample["mask"]
 
         if self.transforms is not None:
-
-            image, mask = self.transforms(
-                image,
-                mask,
+            image_patch, mask_patch = self.transforms(
+                image_patch,
+                mask_patch,
             )
 
-        image = (
-            torch.from_numpy(image)
-            .float()
-            .unsqueeze(0)
-        )
+        image_tensor = torch.from_numpy(image_patch).float().unsqueeze(0)
 
-        mask = (
-            torch.from_numpy(mask)
-            .float()
-            .unsqueeze(0)
-        )
+        mask_tensor = torch.from_numpy(mask_patch).float().unsqueeze(0)
 
         return {
-
-            "image": image,
-
-            "mask": mask,
-
+            "image": image_tensor,
+            "mask": mask_tensor,
             "patient_id": patient_id,
-
             "center": sample["center"],
-
-            "patch_bbox": sample[
-                "patch_bbox"
-            ],
-
-            "is_positive": sample[
-                "is_positive"
-            ],
+            "patch_bbox": sample["patch_bbox"],
+            "is_positive": sample["is_positive"],
         }

@@ -3,7 +3,7 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-from backend.models.blocks import(
+from backend.models.blocks import (
     DoubleConv,
     DownBlock,
     UpBlock,
@@ -13,16 +13,15 @@ from backend.models.blocks import(
 class UNet3D(nn.Module):
     """
     3D U-Net for binary segmentation.
-    
+
     """
 
     def __init__(
         self,
         in_channels: int = 1,
         out_channels: int = 1,
-        features: tuple[int , ...] = (32 , 64 , 128 , 256),
+        features: tuple[int, ...] = (32, 64, 128, 256),
     ) -> None:
-        
         super().__init__()
 
         # -------------------------
@@ -63,26 +62,26 @@ class UNet3D(nn.Module):
         # -------------------------
         self.decoder4 = UpBlock(
             in_channels=features[3] * 2,
-            skip_channels= features[3],
-            out_channels= features[3],
+            skip_channels=features[3],
+            out_channels=features[3],
         )
 
         self.decoder3 = UpBlock(
             in_channels=features[3],
-            skip_channels= features[2],
-            out_channels= features[2],
+            skip_channels=features[2],
+            out_channels=features[2],
         )
 
         self.decoder2 = UpBlock(
             in_channels=features[2],
-            skip_channels= features[1],
-            out_channels= features[1],
+            skip_channels=features[1],
+            out_channels=features[1],
         )
 
         self.decoder1 = UpBlock(
             in_channels=features[1],
-            skip_channels= features[0],
-            out_channels= features[0],
+            skip_channels=features[0],
+            out_channels=features[0],
         )
 
         # -------------------------
@@ -90,23 +89,22 @@ class UNet3D(nn.Module):
         # -------------------------
 
         self.head = nn.Conv3d(
-            in_channels= features[0],
+            in_channels=features[0],
             out_channels=out_channels,
             kernel_size=1,
         )
 
     def forward(
-            self,
-            x: torch.Tensor,
+        self,
+        x: torch.Tensor,
     ) -> torch.Tensor:
-        
-        x , skip1 = self.encoder1(x)
+        x, skip1 = self.encoder1(x)
 
-        x , skip2 = self.encoder2(x)
+        x, skip2 = self.encoder2(x)
 
-        x , skip3 = self.encoder3(x)
+        x, skip3 = self.encoder3(x)
 
-        x , skip4 = self.encoder4(x)
+        x, skip4 = self.encoder4(x)
 
         x = self.bottleneck(x)
 
@@ -121,6 +119,3 @@ class UNet3D(nn.Module):
         x = self.head(x)
 
         return x
-
-        
-

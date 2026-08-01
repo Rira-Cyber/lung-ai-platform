@@ -13,9 +13,7 @@ class DiceLoss(nn.Module):
         self,
         smooth: float = 1e-6,
     ) -> None:
-        
         super().__init__()
-
 
         self.smooth = smooth
 
@@ -24,7 +22,6 @@ class DiceLoss(nn.Module):
         logits: torch.Tensor,
         target: torch.Tensor,
     ) -> torch.Tensor:
-        
         prediction = torch.sigmoid(logits)
 
         prediction = prediction.reshape(-1)
@@ -33,14 +30,9 @@ class DiceLoss(nn.Module):
 
         intersection = (prediction * target).sum()
 
-        dice = (
-            2.0 * intersection + self.smooth
-        ) / (
-            prediction.sum()
-            + target.sum()
-            + self.smooth
+        dice = (2.0 * intersection + self.smooth) / (
+            prediction.sum() + target.sum() + self.smooth
         )
-
 
         loss = 1.0 - dice
 

@@ -1,8 +1,4 @@
-import numpy as np
-
-
 class Threshold:
-
     @staticmethod
     def body(image, threshold=-600):
         return image > threshold

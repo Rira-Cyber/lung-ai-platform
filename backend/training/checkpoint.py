@@ -1,18 +1,25 @@
+from __future__ import annotations
+
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 import torch
 
 
 class CheckpointManager:
     """
-    Save and load training checkpoints.
+    Persist and load training checkpoint payloads.
+
+    This class is responsible only for checkpoint file I/O.
+    It does not know about models, optimizers, schedulers, or
+    other training components.
     """
 
     def __init__(
         self,
-        save_dir: str = "checkpoints",
-    ):
-
+        save_dir: str | Path = "checkpoints",
+    ) -> None:
         self.save_dir = Path(save_dir)
 
         self.save_dir.mkdir(
@@ -20,114 +27,91 @@ class CheckpointManager:
             exist_ok=True,
         )
 
-        self.latest_checkpoint = (
-            self.save_dir / "latest.pt"
-        )
+        self.latest_checkpoint = self.save_dir / "latest.pt"
 
-        self.best_checkpoint = (
-            self.save_dir / "best.pt"
-        )
+        self.best_checkpoint = self.save_dir / "best.pt"
 
     def save(
         self,
-        model,
-        optimizer,
-        epoch: int,
-        loss: float,
+        checkpoint: Mapping[str, Any],
+        *,
         is_best: bool = False,
-    ):
+    ) -> None:
+        """
+        Save the latest checkpoint and optionally the best checkpoint.
+        """
 
-        checkpoint = {
-
-            "epoch": epoch,
-
-            "loss": loss,
-
-            "model_state_dict":
-                model.state_dict(),
-
-            "optimizer_state_dict":
-                optimizer.state_dict(),
-
-        }
-
-        torch.save(
-            checkpoint,
-            self.latest_checkpoint,
+        self._atomic_save(
+            checkpoint=checkpoint,
+            destination=self.latest_checkpoint,
         )
 
         if is_best:
-
-            torch.save(
-                checkpoint,
-                self.best_checkpoint,
+            self._atomic_save(
+                checkpoint=checkpoint,
+                destination=self.best_checkpoint,
             )
 
     def load(
         self,
-        model,
-        optimizer=None,
+        checkpoint_path: str | Path | None = None,
+        *,
         best: bool = False,
-        map_location="cpu",
-    ):
+        map_location: str | torch.device = "cpu",
+    ) -> dict[str, Any]:
+        """
+        Load and return a checkpoint payload.
+        """
 
-        checkpoint_path = (
-            self.best_checkpoint
-            if best
-            else self.latest_checkpoint
+        resolved_path = (
+            Path(checkpoint_path)
+            if checkpoint_path is not None
+            else (self.best_checkpoint if best else self.latest_checkpoint)
         )
 
-        if not checkpoint_path.exists():
-
-            raise FileNotFoundError(
-                f"Checkpoint not found: {checkpoint_path}"
-            )
+        if not resolved_path.exists():
+            raise FileNotFoundError(f"Checkpoint not found: {resolved_path}")
 
         checkpoint = torch.load(
-            checkpoint_path,
+            resolved_path,
             map_location=map_location,
+            weights_only=False,
         )
 
-        model.load_state_dict(
-            checkpoint["model_state_dict"]
-        )
+        if not isinstance(checkpoint, dict):
+            raise ValueError("Checkpoint payload must be a dictionary.")
 
-        if (
-            optimizer is not None
-            and
-            "optimizer_state_dict"
-            in checkpoint
-        ):
-
-            optimizer.load_state_dict(
-                checkpoint["optimizer_state_dict"]
-            )
-
-        return (
-
-            checkpoint["epoch"],
-
-            checkpoint["loss"],
-
-        )
+        return checkpoint
 
     def exists(
         self,
+        *,
         best: bool = False,
     ) -> bool:
-
-        checkpoint_path = (
-            self.best_checkpoint
-            if best
-            else self.latest_checkpoint
-        )
+        checkpoint_path = self.best_checkpoint if best else self.latest_checkpoint
 
         return checkpoint_path.exists()
 
-    def latest_path(self):
-
+    def latest_path(self) -> Path:
         return self.latest_checkpoint
 
-    def best_path(self):
-
+    def best_path(self) -> Path:
         return self.best_checkpoint
+
+    @staticmethod
+    def _atomic_save(
+        checkpoint: Mapping[str, Any],
+        destination: Path,
+    ) -> None:
+        """
+        Write to a temporary file before replacing the target.
+        """
+
+        temporary_path = destination.with_suffix(destination.suffix + ".tmp")
+
+        torch.save(
+            dict(checkpoint),
+            temporary_path,
+        )
+
+        temporary_path.replace(destination)
