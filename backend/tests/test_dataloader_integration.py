@@ -199,22 +199,51 @@ def test_train_validation_loader_factory(
         positive_ratio=0.5,
         patches_per_patient=2,
         val_ratio=0.4,
+        test_ratio=0.2,
         split_seed=42,
         pin_memory=False,
         shuffle=True,
-        validation_metadata_path=(tmp_path / "validation_metadata.json"),
+        validation_metadata_path=(
+            tmp_path / "validation_metadata.json"
+        ),
         training_dataset_factory=FakeLIDCDataset,
         validation_dataset_factory=FakeValidationDataset,
         metadata_generator_factory=FakeMetadataGenerator,
     )
 
-    train_ids = set(loaders.patient_split.train_ids)
+    train_ids = set(
+        loaders.patient_split.train_ids
+    )
 
-    val_ids = set(loaders.patient_split.val_ids)
+    val_ids = set(
+        loaders.patient_split.val_ids
+    )
 
-    assert train_ids.isdisjoint(val_ids)
+    test_ids = set(
+        loaders.patient_split.test_ids
+    )
 
-    assert train_ids | val_ids == set(FakeLIDCDataset.AVAILABLE_PATIENT_IDS)
+    all_ids = set(
+        FakeLIDCDataset.AVAILABLE_PATIENT_IDS
+    )
+
+    assert train_ids.isdisjoint(
+        val_ids
+    )
+
+    assert train_ids.isdisjoint(
+        test_ids
+    )
+
+    assert val_ids.isdisjoint(
+        test_ids
+    )
+
+    assert (
+        train_ids
+        | val_ids
+        | test_ids
+    ) == all_ids
 
     assert len(loaders.train_loader.dataset) == (len(train_ids) * 2)
 

@@ -236,3 +236,16 @@ venv/
 
 # Jupyter
 .ipynb_checkpoints/
+
+# Runtime training outputs
+
+checkpoints/
+experiments/
+logs/
+
+# Preprocessed artifacts
+*.npz
+
+# Model weights
+*.pt
+*.pth

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -24,6 +24,9 @@ class TrainValidationLoaders:
     """
     Container for training and validation DataLoaders.
 
+    Test patients are intentionally reserved but not exposed
+    through a DataLoader during model development.
+
     The patient split and validation metadata path are exposed
     for reproducibility, debugging, and experiment tracking.
     """
@@ -42,11 +45,13 @@ def create_train_validation_loaders(
     positive_ratio: float,
     patches_per_patient: int,
     val_ratio: float,
+    test_ratio: float,
     split_seed: int,
     pin_memory: bool = False,
     shuffle: bool = True,
     validation_metadata_path: str | Path | None = None,
     overwrite_validation_metadata: bool = False,
+    patient_ids: Sequence[str] | None = None,
     *,
     training_dataset_factory: DatasetFactory | None = None,
     validation_dataset_factory: DatasetFactory | None = None,
@@ -58,6 +63,9 @@ def create_train_validation_loaders(
     Training patches are sampled dynamically.
     Validation patches are loaded from fixed metadata.
 
+    Test patients are reserved at patient level but are not used
+    during training or validation.
+
     Dataset and metadata implementations can be injected for testing.
     Production implementations are resolved lazily by default.
     """
@@ -66,6 +74,8 @@ def create_train_validation_loaders(
         batch_size=batch_size,
         num_workers=num_workers,
         patches_per_patient=patches_per_patient,
+        val_ratio=val_ratio,
+        test_ratio=test_ratio,
     )
 
     resolved_dataset_path = Path(dataset_path)
@@ -92,6 +102,10 @@ def create_train_validation_loaders(
         metadata_generator_factory or _get_metadata_generator_factory()
     )
 
+    # ------------------------------------------------------------
+    # Patient discovery
+    # ------------------------------------------------------------
+
     discovery_sampler = PatchSampler(
         patch_size=patch_size,
         positive_ratio=positive_ratio,
@@ -102,12 +116,22 @@ def create_train_validation_loaders(
         dataset_path=resolved_dataset_path,
         sampler=discovery_sampler,
         patches_per_patient=1,
+        patient_ids=patient_ids,
     )
+
+    # ------------------------------------------------------------
+    # Leakage-safe patient split
+    # ------------------------------------------------------------
 
     patient_split = PatientSplitter(
         val_ratio=val_ratio,
+        test_ratio=test_ratio,
         seed=split_seed,
     ).split(discovery_dataset.patient_ids)
+
+    # ------------------------------------------------------------
+    # Training dataset
+    # ------------------------------------------------------------
 
     train_sampler = PatchSampler(
         patch_size=patch_size,
@@ -117,28 +141,36 @@ def create_train_validation_loaders(
     train_dataset = resolved_training_dataset_factory(
         dataset_path=resolved_dataset_path,
         sampler=train_sampler,
-        patches_per_patient=(patches_per_patient),
-        patient_ids=(patient_split.train_ids),
+        patches_per_patient=patches_per_patient,
+        patient_ids=patient_split.train_ids,
     )
+
+    # ------------------------------------------------------------
+    # Validation metadata and dataset
+    # ------------------------------------------------------------
 
     metadata_generator = resolved_metadata_generator_factory(
         dataset_path=resolved_dataset_path,
         patch_size=patch_size,
         positive_ratio=positive_ratio,
-        patches_per_patient=(patches_per_patient),
+        patches_per_patient=patches_per_patient,
         seed=split_seed,
     )
 
     validation_metadata = metadata_generator.generate_or_load(
-        patient_ids=(patient_split.val_ids),
-        metadata_path=(resolved_metadata_path),
-        overwrite=(overwrite_validation_metadata),
+        patient_ids=patient_split.val_ids,
+        metadata_path=resolved_metadata_path,
+        overwrite=overwrite_validation_metadata,
     )
 
     validation_dataset = resolved_validation_dataset_factory(
         dataset_path=resolved_dataset_path,
         metadata=validation_metadata,
     )
+
+    # ------------------------------------------------------------
+    # DataLoaders
+    # ------------------------------------------------------------
 
     loader_generator = torch.Generator()
     loader_generator.manual_seed(split_seed)
@@ -164,7 +196,7 @@ def create_train_validation_loaders(
         train_loader=train_loader,
         val_loader=val_loader,
         patient_split=patient_split,
-        validation_metadata_path=(resolved_metadata_path),
+        validation_metadata_path=resolved_metadata_path,
     )
 
 
@@ -208,6 +240,8 @@ def _validate_loader_arguments(
     batch_size: int,
     num_workers: int,
     patches_per_patient: int,
+    val_ratio: float,
+    test_ratio: float,
 ) -> None:
     """
     Validate DataLoader factory arguments.
@@ -221,3 +255,12 @@ def _validate_loader_arguments(
 
     if patches_per_patient <= 0:
         raise ValueError("patches_per_patient must be greater than zero.")
+
+    if not 0.0 <= val_ratio < 1.0:
+        raise ValueError("val_ratio must be in the range [0.0, 1.0).")
+
+    if not 0.0 <= test_ratio < 1.0:
+        raise ValueError("test_ratio must be in the range [0.0, 1.0).")
+
+    if val_ratio + test_ratio >= 1.0:
+        raise ValueError("val_ratio + test_ratio must be less than 1.0.")

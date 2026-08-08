@@ -9,7 +9,9 @@ dependencies = [
     "scikit-image>=0.26.0",
     "scipy>=1.17.1",
     "setuptools<82",
+    "tensorboard>=2.21.0",
     "torch",
+    "tqdm>=4.70.0",
 ]
 
 [dependency-groups]
